@@ -5,6 +5,7 @@ import pathlib
 import shutil
 import tempfile
 
+from typing import Union
 from pathlib import Path
 from fastapi import FastAPI, File, UploadFile, Request
 from fastapi.responses import HTMLResponse
@@ -15,6 +16,21 @@ from starlette.responses import FileResponse, StreamingResponse
 app = FastAPI()
 
 
+# Main (Html)
+@app.get("/")
+async def main():
+    content = """
+<body>
+<form action="/uploadfiles/" enctype="multipart/form-data" method="post">
+<input name="files" type="file" multiple>
+<input type="submit">
+</form>
+</body>
+    """
+    return HTMLResponse(content=content)
+
+
+# Middleware
 @app.middleware("http")
 async def remove_merge_image_after_response(request: Request, call_next):
     response = await call_next(request)
@@ -33,35 +49,31 @@ async def remove_merge_image_after_response(request: Request, call_next):
 
     return response
 
+# Test
+@app.get("/items/{item_id}")
+def read_item(item_id: int, q: Union[str, None] = None):
+    return {"item_id": item_id, "q": q}
 
-@app.get("/")
-async def main():
-    content = """
-<body>
-<form action="/files/" enctype="multipart/form-data" method="post">
-<input name="files" type="file" multiple>
-<input type="submit">
-</form>
-<form action="/uploadfiles/" enctype="multipart/form-data" method="post">
-<input name="files" type="file" multiple>
-<input type="submit">
-</form>
-</body>
-    """
-    return HTMLResponse(content=content)
-
-
-@app.post("/files/")
-async def create_files(files: list[bytes] = File()):
-    return {"file_sizes": [len(file) for file in files]}
-
-
+# Test
 @app.post("/uploadfiles/")
 async def create_upload_files(files: list[UploadFile]):
+    file_path, gif_file_name = await merge_upload_files(files)
+    return FileResponse(path=file_path, filename=gif_file_name, media_type='application/octet-stream')
+
+
+# API
+@app.post("/api/v1/imageMerge")
+async def make_merge_upload_files(files: list[UploadFile]):
+    file_path, gif_file_name = await merge_upload_files(files)
+    return FileResponse(path=file_path, filename=gif_file_name, media_type='application/octet-stream')
+
+
+# Functions
+async def merge_upload_files(files: list[UploadFile]):
     # temp save files
     temp_file_dicts = []
     for file in files:
-        temp_file_dicts.append(await save_image(file))
+        temp_file_dicts.append(await save_image_tmp(file))
 
     # make dict
     merge_dict = {}
@@ -91,10 +103,10 @@ async def create_upload_files(files: list[UploadFile]):
     # make gif file path
     file_path = pathlib.Path().resolve() / gif_file_name
 
-    return FileResponse(path=file_path, filename=gif_file_name, media_type='application/octet-stream')
+    return [file_path, gif_file_name]
 
 
-async def save_image(upload_file: UploadFile = File(...)):
+async def save_image_tmp(upload_file: UploadFile = File(...)):
     tmp_path = save_upload_file_tmp(upload_file)
     return {"tmp_path": tmp_path}
 
